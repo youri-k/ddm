@@ -1,11 +1,15 @@
 package de.hpi.ddm.actors;
 
+import java.io.ByteArrayOutputStream;
 import java.io.Serializable;
+import java.util.Arrays;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.ActorSelection;
 import akka.actor.Props;
+import com.twitter.chill.KryoPool;
+import de.hpi.ddm.structures.KryoPoolSingleton;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,6 +19,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	////////////////////////
 	// Actor Construction //
 	////////////////////////
+	private static final int MESSAGE_SIZE = 250000;
 
 	public static final String DEFAULT_NAME = "largeMessageProxy";
 	
@@ -40,6 +45,14 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		private ActorRef sender;
 		private ActorRef receiver;
 	}
+
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class OrderedMessage implements Serializable {
+		private byte[] bytes;
+		private long serialNumber;
+		private long endNumber;
+	}
+
 	
 	/////////////////
 	// Actor State //
@@ -67,12 +80,22 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		ActorSelection receiverProxy = this.context().actorSelection(receiver.path().child(DEFAULT_NAME));
 		
 		// This will definitely fail in a distributed setting if the serialized message is large!
-		// Solution options:
-		// 1. Serialize the object and send its bytes batch-wise (make sure to use artery's side channel then).
-		// 2. Serialize the object and send its bytes via Akka streaming.
-		// 3. Send the object via Akka's http client-server component.
-		// 4. Other ideas ...
-		receiverProxy.tell(new BytesMessage<>(message.getMessage(), this.sender(), message.getReceiver()), this.self());
+		// Serialize the object and send its bytes batch-wise (make sure to use artery's side channel then).
+
+		ByteArrayOutputStream bOutput = new ByteArrayOutputStream(MESSAGE_SIZE);
+
+		KryoPool kryo = KryoPoolSingleton.get();
+		byte [] b = kryo.toBytesWithClass(message.getMessage());
+
+		int end_number = (int) Math.ceil((double)b.length / MESSAGE_SIZE) - 1;
+
+		for(int i = 0; i < b.length; i += MESSAGE_SIZE){
+			byte [] chunk = kryo.toBytesWithoutClass(
+					new OrderedMessage(Arrays.copyOfRange(b, i, i + MESSAGE_SIZE), i / MESSAGE_SIZE, end_number)
+			);
+
+			receiverProxy.tell(new BytesMessage<>(chunk, this.sender(), message.getReceiver()), this.self());
+		}
 	}
 
 	private void handle(BytesMessage<?> message) {
