@@ -141,7 +141,7 @@ public class Worker extends AbstractLoggingActor {
     private void handle(WorkMessage message) {
         this.log().info("Got new work " + new String(message.getPermutationSet()));
         ActorRef master = this.sender();
-        if (this.runner != null) this.runner.stop();
+        if (this.runner != null) this.runner.stop();    // stop() is deprecated. I think this sometime causes the error 'JDWP exit error AGENT_ERROR_INVALID_EVENT_TYPE(204): ExceptionOccurred [eventHelper.c:834]'
         this.runner = new Thread(() -> {
             List<String> allPermutations = new ArrayList<>();
             this.heapPermutation(message.getPermutationSet(), message.getPermutationSet().length, allPermutations);

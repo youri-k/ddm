@@ -174,9 +174,7 @@ public class Master extends AbstractLoggingActor {
         for (Map.Entry<ActorRef, Worker.WorkMessage> worker : this.workers.entrySet()) {
             if (worker.getValue() == null) {
                 worker.getKey().tell(new Worker.HintMessage(this.hashedHints), this.self());
-                Worker.WorkMessage currWork = this.tasks.pop();
-                worker.getKey().tell(currWork, this.self());
-                this.workers.put(worker.getKey(), currWork);
+                this.assignWork(worker.getKey());
             }
         }
 
@@ -188,14 +186,7 @@ public class Master extends AbstractLoggingActor {
         this.log().info("Received ready message from worker " + this.sender().toString());
         this.sender().tell(new Worker.HintMessage(this.hashedHints), this.self());
 
-        if(!this.tasks.isEmpty()) {
-            Worker.WorkMessage currWork = this.tasks.pop();
-            this.sender().tell(currWork, this.self());
-            this.workers.put(this.sender(), currWork);
-        } else {
-            // TODO split work
-            this.workers.put(this.sender(), null);
-        }
+        this.handleIdleWorker(this.sender());
     }
 
     protected void handle(SolvedHintMessage message) {
@@ -219,7 +210,7 @@ public class Master extends AbstractLoggingActor {
     }
 
     protected void handle(SolvedCrackMessage message) {
-        this.log().info("Cracked PW of line " + message.getRow() + ", it's :" + message.getPW());
+        this.log().info("Cracked PW of line " + message.getRow() + ", it's: " + message.getPW());
         this.collector.tell(new Collector.CollectMessage(message.getPW()), this.self());
         this.hashedPws.remove(message.getRow());
 
@@ -247,14 +238,8 @@ public class Master extends AbstractLoggingActor {
     protected void handle(RegistrationMessage message) {
         this.context().watch(this.sender());
         this.sender().tell(new Worker.HintMessage(this.hashedHints), this.self());
-        if (!this.tasks.isEmpty()) {
-            Worker.WorkMessage currWork = this.tasks.pop();
-            this.sender().tell(currWork, this.self());
-            this.workers.put(this.sender(), currWork);
-        } else {
-            this.workers.put(this.sender(), null);
-            // TODO split work
-        }
+
+        this.handleIdleWorker(this.sender());
 
         this.log().info("Registered {}", this.sender());
     }
@@ -266,5 +251,51 @@ public class Master extends AbstractLoggingActor {
         this.context().unwatch(message.getActor());
         this.workers.remove(message.getActor());
         this.log().info("Unregistered {}", message.getActor());
+    }
+
+    private void splitWork(){
+        // select random worker (better would be to select a worker which started recently and has a huge workload)
+        Random generator = new Random();
+        ActorRef[] workerArray = this.workers.keySet().toArray(new ActorRef[0]);
+        ActorRef randomWorker = workerArray[generator.nextInt(workerArray.length)];
+        Worker.WorkMessage randomTask = this.workers.get(randomWorker);
+
+        // check if work can be split
+        if(randomTask == null || randomTask.prefix.length == this.characterUniverse.length - 1){
+            this.log().info("The work cannot be split");
+            return;
+        }
+
+        this.log().info("Work of worker " + randomWorker.toString() + " will be split");
+
+        // further divide the task
+        for (char c : randomTask.permutationSet) {
+            char[] newPrefix = new char[randomTask.prefix.length + 1];
+            System.arraycopy(randomTask.prefix, 0, newPrefix, 0, randomTask.prefix.length);
+            newPrefix[randomTask.prefix.length] = c;
+
+            this.tasks.add(new Worker.WorkMessage(ArrayUtils.removeElement(randomTask.permutationSet, c), newPrefix));
+        }
+
+        // assign subtask to the worker, who's work has been split
+        this.assignWork(randomWorker);
+    }
+
+    private void assignWork(ActorRef actor){
+        Worker.WorkMessage currWork = this.tasks.pop();
+        actor.tell(currWork, this.self());
+        this.workers.put(actor, currWork);
+    }
+
+    private void handleIdleWorker(ActorRef actor){
+        if(!this.workers.isEmpty() && this.tasks.isEmpty())
+            this.splitWork();
+
+        // if there are a huge amount of workers, then the work might not be splittable
+        if (!this.tasks.isEmpty()) {
+            this.assignWork(actor);
+        } else {
+            this.workers.put(actor, null);
+        }
     }
 }
