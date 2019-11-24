@@ -141,7 +141,8 @@ public class Worker extends AbstractLoggingActor {
     private void handle(WorkMessage message) {
         this.log().info("Got new work " + new String(message.getPermutationSet()));
         ActorRef master = this.sender();
-        if (this.runner != null) this.runner.stop();    // stop() is deprecated. I think this sometime causes the error 'JDWP exit error AGENT_ERROR_INVALID_EVENT_TYPE(204): ExceptionOccurred [eventHelper.c:834]'
+        // We use stop because we want to stop the worker thread immediately and start a new one. This is only relevant if the work is split in the master.
+        if (this.runner != null) this.runner.stop();
         this.runner = new Thread(() -> {
             List<String> allPermutations = new ArrayList<>();
             this.heapPermutation(message.getPermutationSet(), message.getPermutationSet().length, allPermutations);
@@ -149,14 +150,11 @@ public class Worker extends AbstractLoggingActor {
             String prefix = new String(message.getPrefix());
 
             for (String permutation : allPermutations) {
-                String hash = hash(prefix + permutation);
-                List<Integer> rows = this.hashedHints.get(hash);
-                if (rows != null) {
-                    // This is okay because the array only contains a few rowIds
-                    int[] rowArray = new int[rows.size()];
-                    for (int i = 0; i < rowArray.length; i++) rowArray[i] = rows.get(i);
-                    master.tell(new Master.SolvedHintMessage(prefix + permutation, hash, rowArray), this.self());
-                }
+                validateSolution(master, prefix + permutation);
+            }
+
+            if (message.getPermutationSet().length == 0) {
+                validateSolution(master, prefix);
             }
 
             master.tell(new Master.ReadyMessage(), this.self());
@@ -261,9 +259,20 @@ public class Worker extends AbstractLoggingActor {
         }
 
         List<Character> usedChars = new ArrayList<>();
-        for(char c : characterUniverse) usedChars.add(c);
+        for (char c : characterUniverse) usedChars.add(c);
         usedChars.removeAll(notInPw);
 
         return usedChars.toArray(new Character[0]);
+    }
+
+    private void validateSolution(ActorRef master, String toHash) {
+        String hash = hash(toHash);
+        List<Integer> rows = this.hashedHints.get(hash);
+        if (rows != null) {
+            // This is okay because the array only contains a few rowIds and there is no other conversion between int and Integer
+            int[] rowArray = new int[rows.size()];
+            for (int i = 0; i < rowArray.length; i++) rowArray[i] = rows.get(i);
+            master.tell(new Master.SolvedHintMessage(toHash, hash, rowArray), this.self());
+        }
     }
 }

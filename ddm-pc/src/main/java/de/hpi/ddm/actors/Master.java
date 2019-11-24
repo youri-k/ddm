@@ -20,6 +20,8 @@ public class Master extends AbstractLoggingActor {
     ////////////////////////
 
     public static final String DEFAULT_NAME = "master";
+    // This proved to be a good size to avoid missing the heartbeat signal but if you have a better CPU increase the size to lower the communication overhead.
+    private static final int MAX_PERMUTATION_SET_SIZE = 9;
 
     public static Props props(final ActorRef reader, final ActorRef collector) {
         return Props.create(Master.class, () -> new Master(reader, collector));
@@ -139,7 +141,6 @@ public class Master extends AbstractLoggingActor {
         // The input file is read in batches for two reasons: /////////////////////////////////////////////////
         // 1. If we distribute the batches early, we might not need to hold the entire input data in memory. //
         // 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
-        // TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
         ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
         if (message.getLines().isEmpty()) return;
@@ -168,7 +169,7 @@ public class Master extends AbstractLoggingActor {
         }
 
         for (char c : this.characterUniverse) {
-            this.tasks.add(new Worker.WorkMessage(ArrayUtils.removeElement(characterUniverse, c), ArrayUtils.EMPTY_CHAR_ARRAY));
+            this.addTasks(ArrayUtils.removeElement(characterUniverse, c), ArrayUtils.EMPTY_CHAR_ARRAY);
         }
 
         for (Map.Entry<ActorRef, Worker.WorkMessage> worker : this.workers.entrySet()) {
@@ -177,9 +178,6 @@ public class Master extends AbstractLoggingActor {
                 this.assignWork(worker.getKey());
             }
         }
-
-        // this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
-        // this.reader.tell(new Reader.ReadMessage(), this.self());
     }
 
     private void handle(ReadyMessage readyMessage) {
@@ -190,7 +188,7 @@ public class Master extends AbstractLoggingActor {
     }
 
     protected void handle(SolvedHintMessage message) {
-        // TODO Propagate usedHashes map on Key found
+        // Further improvement would be to propagate found hashes
 
         this.log().info("Solved Hint " + message.getHint());
 
@@ -214,7 +212,7 @@ public class Master extends AbstractLoggingActor {
         this.collector.tell(new Collector.CollectMessage(message.getPW()), this.self());
         this.hashedPws.remove(message.getRow());
 
-        if(hashedPws.isEmpty()){
+        if (hashedPws.isEmpty()) {
             this.collector.tell(new Collector.PrintMessage(), this.self());
             this.terminate();
         }
@@ -253,7 +251,7 @@ public class Master extends AbstractLoggingActor {
         this.log().info("Unregistered {}", message.getActor());
     }
 
-    private void splitWork(){
+    private void splitWork() {
         // select random worker (better would be to select a worker which started recently and has a huge workload)
         Random generator = new Random();
         ActorRef[] workerArray = this.workers.keySet().toArray(new ActorRef[0]);
@@ -261,7 +259,7 @@ public class Master extends AbstractLoggingActor {
         Worker.WorkMessage randomTask = this.workers.get(randomWorker);
 
         // check if work can be split
-        if(randomTask == null || randomTask.prefix.length == this.characterUniverse.length - 1){
+        if (randomTask == null || randomTask.prefix.length == this.characterUniverse.length - 1) {
             this.log().info("The work cannot be split");
             return;
         }
@@ -270,25 +268,21 @@ public class Master extends AbstractLoggingActor {
 
         // further divide the task
         for (char c : randomTask.permutationSet) {
-            char[] newPrefix = new char[randomTask.prefix.length + 1];
-            System.arraycopy(randomTask.prefix, 0, newPrefix, 0, randomTask.prefix.length);
-            newPrefix[randomTask.prefix.length] = c;
-
-            this.tasks.add(new Worker.WorkMessage(ArrayUtils.removeElement(randomTask.permutationSet, c), newPrefix));
+            this.tasks.add(new Worker.WorkMessage(ArrayUtils.removeElement(randomTask.permutationSet, c), this.getNewPrefix(randomTask.prefix, c)));
         }
 
         // assign subtask to the worker, who's work has been split
         this.assignWork(randomWorker);
     }
 
-    private void assignWork(ActorRef actor){
+    private void assignWork(ActorRef actor) {
         Worker.WorkMessage currWork = this.tasks.pop();
         actor.tell(currWork, this.self());
         this.workers.put(actor, currWork);
     }
 
-    private void handleIdleWorker(ActorRef actor){
-        if(!this.workers.isEmpty() && this.tasks.isEmpty())
+    private void handleIdleWorker(ActorRef actor) {
+        if (!this.workers.isEmpty() && this.tasks.isEmpty())
             this.splitWork();
 
         // if there are a huge amount of workers, then the work might not be splittable
@@ -297,5 +291,22 @@ public class Master extends AbstractLoggingActor {
         } else {
             this.workers.put(actor, null);
         }
+    }
+
+    private void addTasks(char[] oldPermutationSet, char[] oldPrefix) {
+        if (oldPermutationSet.length <= MAX_PERMUTATION_SET_SIZE) {
+            this.tasks.add(new Worker.WorkMessage(oldPermutationSet, oldPrefix));
+        } else {
+            for (char c : oldPermutationSet) {
+                addTasks(ArrayUtils.removeElement(oldPermutationSet, c), this.getNewPrefix(oldPrefix, c));
+            }
+        }
+    }
+
+    private char[] getNewPrefix(char[] oldPrefix, char c) {
+        char[] newPrefix = new char[oldPrefix.length + 1];
+        System.arraycopy(oldPrefix, 0, newPrefix, 0, oldPrefix.length);
+        newPrefix[oldPrefix.length] = c;
+        return newPrefix;
     }
 }
