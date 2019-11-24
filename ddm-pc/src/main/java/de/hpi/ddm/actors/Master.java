@@ -145,8 +145,6 @@ public class Master extends AbstractLoggingActor {
 
         if (message.getLines().isEmpty()) return;
 
-        this.log().info("Got a new batch of work of size " + message.getLines().size());
-
         this.solvedHints.clear();
 
         String[] lineOne = message.getLines().get(0);
@@ -168,30 +166,20 @@ public class Master extends AbstractLoggingActor {
             }
         }
 
-        for (char c : this.characterUniverse) {
+        for (char c : this.characterUniverse)
             this.addTasks(ArrayUtils.removeElement(characterUniverse, c), ArrayUtils.EMPTY_CHAR_ARRAY);
-        }
 
-        for (Map.Entry<ActorRef, Worker.WorkMessage> worker : this.workers.entrySet()) {
-            if (worker.getValue() == null) {
-                worker.getKey().tell(new Worker.HintMessage(this.hashedHints), this.self());
-                this.assignWork(worker.getKey());
-            }
-        }
+        for (Map.Entry<ActorRef, Worker.WorkMessage> worker : this.workers.entrySet())
+            if (worker.getValue() == null)
+                this.handleIdleWorker(worker.getKey());
     }
 
     private void handle(ReadyMessage readyMessage) {
-        this.log().info("Received ready message from worker " + this.sender().toString());
-        this.sender().tell(new Worker.HintMessage(this.hashedHints), this.self());
-
         this.handleIdleWorker(this.sender());
     }
 
-    protected void handle(SolvedHintMessage message) {
+    private void handle(SolvedHintMessage message) {
         // Further improvement would be to propagate found hashes
-
-        this.log().info("Solved Hint " + message.getHint());
-
         for (int i : message.getRows()) {
             List<String> currentHints = this.solvedHints.get(i);
             if (currentHints == null) currentHints = new ArrayList<>();
@@ -207,8 +195,7 @@ public class Master extends AbstractLoggingActor {
             this.reader.tell(new Reader.ReadMessage(), this.self());
     }
 
-    protected void handle(SolvedCrackMessage message) {
-        this.log().info("Cracked PW of line " + message.getRow() + ", it's: " + message.getPW());
+    private void handle(SolvedCrackMessage message) {
         this.collector.tell(new Collector.CollectMessage(message.getPW()), this.self());
         this.hashedPws.remove(message.getRow());
 
@@ -235,7 +222,6 @@ public class Master extends AbstractLoggingActor {
 
     protected void handle(RegistrationMessage message) {
         this.context().watch(this.sender());
-        this.sender().tell(new Worker.HintMessage(this.hashedHints), this.self());
 
         this.handleIdleWorker(this.sender());
 
@@ -251,56 +237,24 @@ public class Master extends AbstractLoggingActor {
         this.log().info("Unregistered {}", message.getActor());
     }
 
-    private void splitWork() {
-        // select random worker (better would be to select a worker which started recently and has a huge workload)
-        Random generator = new Random();
-        ActorRef[] workerArray = this.workers.keySet().toArray(new ActorRef[0]);
-        ActorRef randomWorker = workerArray[generator.nextInt(workerArray.length)];
-        Worker.WorkMessage randomTask = this.workers.get(randomWorker);
-
-        // check if work can be split
-        if (randomTask == null || randomTask.prefix.length == this.characterUniverse.length - 1) {
-            this.log().info("The work cannot be split");
-            return;
-        }
-
-        this.log().info("Work of worker " + randomWorker.toString() + " will be split");
-
-        // further divide the task
-        for (char c : randomTask.permutationSet) {
-            this.tasks.add(new Worker.WorkMessage(ArrayUtils.removeElement(randomTask.permutationSet, c), this.getNewPrefix(randomTask.prefix, c)));
-        }
-
-        // assign subtask to the worker, who's work has been split
-        this.assignWork(randomWorker);
-    }
-
-    private void assignWork(ActorRef actor) {
-        Worker.WorkMessage currWork = this.tasks.pop();
-        actor.tell(currWork, this.self());
-        this.workers.put(actor, currWork);
-    }
-
     private void handleIdleWorker(ActorRef actor) {
-        if (!this.workers.isEmpty() && this.tasks.isEmpty())
-            this.splitWork();
-
-        // if there are a huge amount of workers, then the work might not be splittable
         if (!this.tasks.isEmpty()) {
-            this.assignWork(actor);
+            actor.tell(new Worker.HintMessage(this.hashedHints), this.self());
+
+            Worker.WorkMessage currWork = this.tasks.pop();
+            actor.tell(currWork, this.self());
+            this.workers.put(actor, currWork);
         } else {
             this.workers.put(actor, null);
         }
     }
 
     private void addTasks(char[] oldPermutationSet, char[] oldPrefix) {
-        if (oldPermutationSet.length <= MAX_PERMUTATION_SET_SIZE) {
+        if (oldPermutationSet.length <= MAX_PERMUTATION_SET_SIZE)
             this.tasks.add(new Worker.WorkMessage(oldPermutationSet, oldPrefix));
-        } else {
-            for (char c : oldPermutationSet) {
+        else
+            for (char c : oldPermutationSet)
                 addTasks(ArrayUtils.removeElement(oldPermutationSet, c), this.getNewPrefix(oldPrefix, c));
-            }
-        }
     }
 
     private char[] getNewPrefix(char[] oldPrefix, char c) {

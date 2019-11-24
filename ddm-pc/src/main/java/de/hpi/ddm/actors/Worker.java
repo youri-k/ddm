@@ -33,9 +33,6 @@ public class Worker extends AbstractLoggingActor {
 
     public Worker() {
         this.cluster = Cluster.get(this.context().system());
-        this.runner = null;
-
-        this.log().info("Spawned new worker");
     }
 
     ////////////////////
@@ -79,7 +76,6 @@ public class Worker extends AbstractLoggingActor {
     private final Cluster cluster;
 
     private Map<String, List<Integer>> hashedHints;
-    private Thread runner;
 
     /////////////////////
     // Actor Lifecycle //
@@ -139,27 +135,25 @@ public class Worker extends AbstractLoggingActor {
     }
 
     private void handle(WorkMessage message) {
-        this.log().info("Got new work " + new String(message.getPermutationSet()));
         ActorRef master = this.sender();
-        // We use stop because we want to stop the worker thread immediately and start a new one. This is only relevant if the work is split in the master.
-        if (this.runner != null) this.runner.stop();
-        this.runner = new Thread(() -> {
-            List<String> allPermutations = new ArrayList<>();
-            this.heapPermutation(message.getPermutationSet(), message.getPermutationSet().length, allPermutations);
 
-            String prefix = new String(message.getPrefix());
+        List<String> allPermutations = new ArrayList<>();
+        this.heapPermutation(message.getPermutationSet(), message.getPermutationSet().length, allPermutations);
 
-            for (String permutation : allPermutations) {
-                validateSolution(master, prefix + permutation);
+        String prefix = new String(message.getPrefix());
+
+        for (String permutation : allPermutations) {
+            String hash = hash(prefix + permutation);
+            List<Integer> rows = this.hashedHints.get(hash);
+            if (rows != null) {
+                // This is okay because the array only contains a few rowIds and there is no other conversion between int and Integer
+                int[] rowArray = new int[rows.size()];
+                for (int i = 0; i < rowArray.length; i++) rowArray[i] = rows.get(i);
+                master.tell(new Master.SolvedHintMessage(prefix + permutation, hash, rowArray), this.self());
             }
+        }
 
-            if (message.getPermutationSet().length == 0) {
-                validateSolution(master, prefix);
-            }
-
-            master.tell(new Master.ReadyMessage(), this.self());
-        });
-        this.runner.start();
+        master.tell(new Master.ReadyMessage(), this.self());
     }
 
     private void handle(HintMessage message) {
@@ -167,7 +161,6 @@ public class Worker extends AbstractLoggingActor {
     }
 
     private void handle(CrackMessage message) {
-        this.log().info("Got new crack request");
         ActorRef master = this.sender();
         Character[] usedChars = this.getUsedChars(message.getAllPossibleCharacters(), message.getHints());
 
@@ -263,16 +256,5 @@ public class Worker extends AbstractLoggingActor {
         usedChars.removeAll(notInPw);
 
         return usedChars.toArray(new Character[0]);
-    }
-
-    private void validateSolution(ActorRef master, String toHash) {
-        String hash = hash(toHash);
-        List<Integer> rows = this.hashedHints.get(hash);
-        if (rows != null) {
-            // This is okay because the array only contains a few rowIds and there is no other conversion between int and Integer
-            int[] rowArray = new int[rows.size()];
-            for (int i = 0; i < rowArray.length; i++) rowArray[i] = rows.get(i);
-            master.tell(new Master.SolvedHintMessage(toHash, hash, rowArray), this.self());
-        }
     }
 }
