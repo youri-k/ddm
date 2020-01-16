@@ -28,8 +28,10 @@ object SimpleSpark extends App {
     //------------------------------------------------------------------------------------------------------------------
 
     val path = if(args.indexOf("--path") == -1) "./TPCH" else args(args.indexOf("--path") + 1)
-    val numCores = if(args.indexOf("--cores") == -1) 4 else args(args.indexOf("--path") + 1)
+    val numCores = if(args.indexOf("--cores") == -1) 4 else args(args.indexOf("--cores") + 1)
 
+    println("Path: " + path)
+    println("Number of cores: " + numCores)
 
     // Turn off logging
     Logger.getLogger("org").setLevel(Level.OFF)
