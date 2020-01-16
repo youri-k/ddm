@@ -12,10 +12,11 @@ object Sindy {
       .csv(file)
       .flatMap(row => row.schema.fields.zipWithIndex.map(tup => (row.getString(tup._2), tup._1.name ))))
       .reduce{(a, b) => a.union(b)}
+      .dropDuplicates()
       .groupByKey(_._1)
       .mapGroups{case (_, rows) => rows.map(_._2).toSet}
       .dropDuplicates
-      .flatMap(set => set.map(e => (e, set.diff(Set(e)))))
+      .flatMap(set => set.map(e => (e, set-e)))
       .groupByKey(_._1)
       .mapGroups{case (k, it) => (k, it.foldLeft(it.next()._2){(a, b) => a.intersect(b._2)})}
       .filter(_._2.nonEmpty)
