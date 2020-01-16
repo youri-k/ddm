@@ -1,5 +1,7 @@
 package de.hpi.spark_tutorial
 
+import java.io.File
+
 import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.classification.DecisionTreeClassificationModel
@@ -20,6 +22,15 @@ class Pet(var name:String, var age:Int) {
 object SimpleSpark extends App {
 
   override def main(args: Array[String]): Unit = {
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Handle input parameter
+    //------------------------------------------------------------------------------------------------------------------
+
+    val path = if(args.indexOf("--path") == -1) "./TPCH" else args(args.indexOf("--path") + 1)
+    val numCores = if(args.indexOf("--cores") == -1) 4 else args(args.indexOf("--path") + 1)
+
+
     // Turn off logging
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
@@ -32,14 +43,11 @@ object SimpleSpark extends App {
     val sparkBuilder = SparkSession
       .builder()
       .appName("SparkTutorial")
-      .master("local[4]") // local, with 4 worker cores
+      .master(s"local[$numCores]") // local, with numCores worker cores
     val spark = sparkBuilder.getOrCreate()
 
     // Set the default number of shuffle partitions (default is 200, which is too high for local deployment)
     spark.conf.set("spark.sql.shuffle.partitions", "8") //
-
-    // Importing implicit encoders for standard library classes and tuples that are used as Dataset types
-    import spark.implicits._
 
     def time[R](block: => R): R = {
       val t0 = System.currentTimeMillis()
@@ -53,9 +61,12 @@ object SimpleSpark extends App {
     // Inclusion Dependency Discovery (Homework)
     //------------------------------------------------------------------------------------------------------------------
 
-    val inputs = List("region", "nation", "supplier", "customer", "part", "lineitem", "orders")
-      .map(name => s"data/TPCH/tpch_$name.csv")
+    time {Sindy.discoverINDs(getFileNames(path), spark)}
+  }
 
-    time {Sindy.discoverINDs(inputs, spark)}
+  def getFileNames(path: String): List[String] ={
+    val dir = new File(path)
+      assert(dir.exists() && dir.isDirectory, s"$dir does not exist or is not a directory")
+      dir.listFiles().filter(_.isFile).map(_.toString).toList
   }
 }
