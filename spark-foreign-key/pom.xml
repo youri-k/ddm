@@ -2,11 +2,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>de.hpi.spark_tutorial</groupId>
-  <artifactId>SparkTutorial</artifactId>
+  <artifactId>Riesenadler-foreign-key-detection</artifactId>
   <version>1.0</version>
   <name>${project.artifactId}</name>
-  <description>A spark tutorial project</description>
-  <inceptionYear>2018</inceptionYear>
+  <description>A spark project for unary foreign key relationship detection</description>
+  <inceptionYear>2020</inceptionYear>
   <packaging>jar</packaging>
 
   <properties>
@@ -49,6 +49,7 @@
   <build>
     <sourceDirectory>src/main/scala</sourceDirectory>
     <plugins>
+      <!--
       <plugin>
         <groupId>net.alchim31.maven</groupId>
         <artifactId>scala-maven-plugin</artifactId>
@@ -68,6 +69,7 @@
           </execution>
         </executions>
       </plugin>
+      -->
 
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
