@@ -28,7 +28,8 @@ object SimpleSpark extends App {
     //------------------------------------------------------------------------------------------------------------------
 
     val path = if(args.indexOf("--path") == -1) "./TPCH" else args(args.indexOf("--path") + 1)
-    val numCores = if(args.indexOf("--cores") == -1) 4 else args(args.indexOf("--cores") + 1)
+    val numCores = if(args.indexOf("--cores") == -1) "4" else args(args.indexOf("--cores") + 1)
+    val numShufflePartitions = (Integer.valueOf(numCores) * 2).toString
 
     println("Path: " + path)
     println("Number of cores: " + numCores)
@@ -49,7 +50,7 @@ object SimpleSpark extends App {
     val spark = sparkBuilder.getOrCreate()
 
     // Set the default number of shuffle partitions (default is 200, which is too high for local deployment)
-    spark.conf.set("spark.sql.shuffle.partitions", "8") //
+    spark.conf.set("spark.sql.shuffle.partitions", numShufflePartitions) //
 
     def time[R](block: => R): R = {
       val t0 = System.currentTimeMillis()
